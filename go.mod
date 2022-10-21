@@ -1,4 +1,4 @@
-module github.com/secDre4mer/etw
+module github.com/SEKOIA-IO/etw
 
 go 1.17
 

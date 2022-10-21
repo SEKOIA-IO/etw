@@ -36,7 +36,7 @@ import (
 	"os/signal"
 	"sync"
 
-	"github.com/secDre4mer/etw"
+	"github.com/SEKOIA-IO/etw"
 )
 
 func main() {
