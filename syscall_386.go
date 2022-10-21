@@ -86,3 +86,13 @@ func openTrace(logfile *eventTraceLogfile) (uint64, error) {
 	}
 	return traceHandle, nil
 }
+
+func closeTrace(sessionHandle uint64) error {
+	// ETW_APP_DECLSPEC_DEPRECATED ULONG WMIAPI CloseTrace(
+	//  [in] TRACEHANDLE TraceHandle
+	// );
+	_, _, err := procCloseTrace.Call(
+		uintptr(uint32(sessionHandle)),
+	)
+	return err
+}

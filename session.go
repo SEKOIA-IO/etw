@@ -52,6 +52,7 @@ type Session struct {
 
 	etwSessionName []uint16
 	hSession       uint64
+	hOpenTrace     uint64
 	propertiesBuf  []byte
 
 	processedEvents uint64
@@ -78,6 +79,28 @@ type EventCallback func(e *Event)
 // You MUST call `.Close` on session after use to clear associated resources,
 // otherwise it will leak in OS internals until system reboot.
 func NewSession(options ...SessionOption) (*Session, error) {
+	s := newSession(options...)
+	if err := s.createETWSession(); err != nil {
+		return nil, err
+	}
+	// TODO: consider setting a finalizer with .Close
+
+	return &s, nil
+}
+
+// NewSessionNoCreate will return a new session without trying to create it
+//
+// You MUST call `.Close` on session after use to clear associated resources,
+// otherwise it will leak in OS internals until system reboot.
+func NewSessionNoCreate(options ...SessionOption) *Session {
+	s := newSession(options...)
+	s.setETWSessionName()
+	propertiesBuf := s.generateTraceProperties(s.config)
+	s.propertiesBuf = propertiesBuf
+	return &s
+}
+
+func newSession(options ...SessionOption) Session {
 	defaultConfig := SessionOptions{
 		Name: "go-etw-" + randomName(),
 	}
@@ -85,15 +108,11 @@ func NewSession(options ...SessionOption) (*Session, error) {
 		opt(&defaultConfig)
 	}
 	s := Session{
-		config: defaultConfig,
+		config:     defaultConfig,
+		hSession:   invalidTraceHandle,
+		hOpenTrace: invalidTraceHandle,
 	}
-
-	if err := s.createETWSession(); err != nil {
-		return nil, err
-	}
-	// TODO: consider setting a finalizer with .Close
-
-	return &s, nil
+	return s
 }
 
 // Update updates the session options with the new options.
@@ -169,6 +188,9 @@ func (s *Session) Close() error {
 
 	if err := s.stopSession(); err != nil {
 		return fmt.Errorf("failed to stop session; %w", err)
+	}
+	if err := s.closeSession(); err != nil {
+		return fmt.Errorf("failed to close session; %w", err)
 	}
 	return nil
 }
@@ -270,8 +292,8 @@ func (s *Session) generateTraceProperties(config SessionOptions) []byte {
 	return propertiesBuf
 }
 
-// createETWSession wraps StartTraceW.
-func (s *Session) createETWSession() error {
+// setETWSessionName Set the sessionnname based on config
+func (s *Session) setETWSessionName() error {
 	utf16Name, err := windows.UTF16FromString(s.config.Name)
 	if err != nil {
 		return fmt.Errorf("incorrect session name; %w", err) // unlikely
@@ -283,6 +305,15 @@ func (s *Session) createETWSession() error {
 			// and instead requires usage of the global kernel logger session.
 			s.etwSessionName, _ = windows.UTF16FromString(kernelLoggerName)
 		}
+	}
+	return nil
+}
+
+// createETWSession wraps StartTraceW.
+func (s *Session) createETWSession() error {
+	err := s.setETWSessionName()
+	if err != nil {
+		return err
 	}
 	propertiesBuf := s.generateTraceProperties(s.config)
 
@@ -464,23 +495,26 @@ func (s *Session) subscribeToProvider(provider windows.GUID, options ProviderOpt
 
 // unsubscribeFromProviders wraps EnableTraceEx2 with EVENT_CONTROL_CODE_DISABLE_PROVIDER.
 func (s *Session) unsubscribeFromProviders() error {
-	var lastError error
-	for _, guid := range s.guids {
-		err := enableTraceEx2(
-			s.hSession,
-			&guid,
-			eventControlCodeDisableProvider,
-			0,
-			0,
-			0,
-			0,
-			nil,
-		)
-		if err != nil && err != windows.ERROR_NOT_FOUND {
-			lastError = fmt.Errorf("EVENT_CONTROL_CODE_DISABLE_PROVIDER failed for GUID %s; %w", guid, err)
+	if s.hSession != invalidTraceHandle {
+		var lastError error
+		for _, guid := range s.guids {
+			err := enableTraceEx2(
+				s.hSession,
+				&guid,
+				eventControlCodeDisableProvider,
+				0,
+				0,
+				0,
+				0,
+				nil,
+			)
+			if err != nil && err != windows.ERROR_NOT_FOUND {
+				lastError = fmt.Errorf("EVENT_CONTROL_CODE_DISABLE_PROVIDER failed for GUID %s; %w", guid, err)
+			}
 		}
+		return lastError
 	}
-	return lastError
+	return nil
 }
 
 const (
@@ -500,6 +534,7 @@ func (s *Session) processEvents(callbackContextKey uintptr) error {
 	if err != nil {
 		return fmt.Errorf("OpenTraceW failed; %w", err)
 	}
+	s.hOpenTrace = traceHandle
 
 	// BLOCKS UNTIL CLOSED!
 	err = processTrace(&traceHandle, 1, nil, nil)
@@ -511,20 +546,34 @@ func (s *Session) processEvents(callbackContextKey uintptr) error {
 
 // stopSession wraps ControlTraceW with EVENT_TRACE_CONTROL_STOP.
 func (s *Session) stopSession() error {
-	err := controlTrace(
-		s.hSession,
-		nil,
-		(*eventTraceProperties)(unsafe.Pointer(&s.propertiesBuf[0])),
-		eventTraceControlStop,
-	)
+	if s.hSession != invalidTraceHandle {
+		err := controlTrace(
+			s.hSession,
+			nil,
+			(*eventTraceProperties)(unsafe.Pointer(&s.propertiesBuf[0])),
+			eventTraceControlStop,
+		)
 
-	// If you receive ERROR_MORE_DATA when stopping the session, ETW will have
-	// already stopped the session before generating this error.
-	// https://docs.microsoft.com/en-us/windows/win32/api/evntrace/nf-evntrace-controltracew
-	if err == windows.ERROR_MORE_DATA {
-		err = nil
+		// If you receive ERROR_MORE_DATA when stopping the session, ETW will have
+		// already stopped the session before generating this error.
+		// https://docs.microsoft.com/en-us/windows/win32/api/evntrace/nf-evntrace-controltracew
+		if err == windows.ERROR_MORE_DATA {
+			err = nil
+		}
+		return err
 	}
-	return err
+	return nil
+}
+
+func (s *Session) closeSession() error {
+	if s.hOpenTrace != invalidTraceHandle {
+		err := closeTrace(s.hOpenTrace)
+		if err == windows.ERROR_SUCCESS || err == windows.ERROR_CTX_CLOSE_PENDING {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // stopSession wraps ControlTraceW with EVENT_TRACE_CONTROL_STOP.
