@@ -114,6 +114,11 @@ type ProviderOptions struct {
 	// TriggerRundown requests a log of the provider's state information. This typically causes a number
 	// of rundown events to be sent at the provider's start.
 	TriggerRundown bool
+
+	// Ignore any event map information that might have to be parsed from the provider manifest.
+	// This can speed up event formatting considerably, but enums or bit maps will no longer
+	// be formatted.
+	IgnoreMapInfo bool
 }
 
 // ProviderOption is any function that modifies ProviderOptions. Options will be called

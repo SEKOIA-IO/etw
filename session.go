@@ -56,6 +56,8 @@ type Session struct {
 	propertiesBuf  []byte
 
 	processedEvents uint64
+
+	providerIgnoreMapInfo map[windows.GUID]bool
 }
 
 // EventCallback is any function that could handle an ETW event. EventCallback
@@ -108,9 +110,10 @@ func newSession(options ...SessionOption) Session {
 		opt(&defaultConfig)
 	}
 	s := Session{
-		config:     defaultConfig,
-		hSession:   invalidTraceHandle,
-		hOpenTrace: invalidTraceHandle,
+		config:                defaultConfig,
+		hSession:              invalidTraceHandle,
+		hOpenTrace:            invalidTraceHandle,
+		providerIgnoreMapInfo: map[windows.GUID]bool{},
 	}
 	return s
 }
@@ -139,6 +142,7 @@ func (s *Session) AddProvider(providerGUID windows.GUID, options ...ProviderOpti
 		return fmt.Errorf("failed to subscribe to provider; %w", err)
 	}
 	s.guids = append(s.guids, providerGUID)
+	s.providerIgnoreMapInfo[providerGUID] = defaultConfig.IgnoreMapInfo
 	return nil
 }
 
@@ -653,10 +657,11 @@ func handleEvent(eventRecord *eventRecordC) uintptr {
 	}
 
 	session := targetSession.(*Session)
+	ignoreMapInfo := session.providerIgnoreMapInfo[eventRecord.EventHeader.ProviderId] || session.config.IgnoreMapInfo
 	evt := &Event{
 		Header:        eventHeaderToGo(eventRecord.EventHeader),
 		eventRecord:   eventRecord,
-		ignoreMapInfo: session.config.IgnoreMapInfo,
+		ignoreMapInfo: ignoreMapInfo,
 	}
 	session.callback(evt)
 	session.processedEvents++
