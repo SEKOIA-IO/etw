@@ -549,28 +549,11 @@ func createUTF16String(ptr unsafe.Pointer, length int) string {
 	chars := (*[anysizeArray]uint16)(ptr)[:length:length]
 
 	// Detect actual length of UTF-16 zero terminated string
-	var fastEncode = true
 	for i, v := range chars {
 		if v == 0 {
 			chars = chars[0:i]
 			break
 		}
-		if v >= 0x800 {
-			fastEncode = false
-		}
-	}
-	if fastEncode {
-		// Optimized variant for simple texts
-		var bytes = make([]byte, 0, len(chars)*2)
-		for _, v := range chars {
-			// Encoding for UTF-8, see https://en.wikipedia.org/wiki/UTF-8#Encoding
-			if v < 0x80 {
-				bytes = append(bytes, uint8(v))
-			} else {
-				bytes = append(bytes, 0b11000000&uint8(v>>6), 0b10000000&uint8(v))
-			}
-		}
-		return *(*string)(unsafe.Pointer(&bytes))
 	}
 	return string(utf16.Decode(chars))
 }
