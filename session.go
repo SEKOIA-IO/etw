@@ -193,9 +193,6 @@ func (s *Session) Close() error {
 	if err := s.stopSession(); err != nil {
 		return fmt.Errorf("failed to stop session; %w", err)
 	}
-	if err := s.closeSession(); err != nil {
-		return fmt.Errorf("failed to close session; %w", err)
-	}
 	return nil
 }
 
@@ -538,7 +535,7 @@ func (s *Session) processEvents(callbackContextKey uintptr) error {
 	if err != nil {
 		return fmt.Errorf("OpenTraceW failed; %w", err)
 	}
-	s.hOpenTrace = traceHandle
+	defer closeTrace(traceHandle)
 
 	// BLOCKS UNTIL CLOSED!
 	err = processTrace(&traceHandle, 1, nil, nil)
@@ -563,17 +560,6 @@ func (s *Session) stopSession() error {
 		// https://docs.microsoft.com/en-us/windows/win32/api/evntrace/nf-evntrace-controltracew
 		if err == windows.ERROR_MORE_DATA {
 			err = nil
-		}
-		return err
-	}
-	return nil
-}
-
-func (s *Session) closeSession() error {
-	if s.hOpenTrace != invalidTraceHandle {
-		err := closeTrace(s.hOpenTrace)
-		if err == windows.ERROR_SUCCESS || err == windows.ERROR_CTX_CLOSE_PENDING {
-			return nil
 		}
 		return err
 	}
