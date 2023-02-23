@@ -186,15 +186,18 @@ func (s *Session) Close() error {
 	// "Be sure to disable all providers before stopping the session."
 	// https://docs.microsoft.com/en-us/windows/win32/etw/configuring-and-starting-an-event-tracing-session
 	if err := s.unsubscribeFromProviders(); err != nil {
+		closeTrace(s.hOpenTrace)
 		s.stopSession()
 		return fmt.Errorf("failed to disable provider; %w", err)
 	}
 
+	if err := closeTrace(s.hOpenTrace); err != nil {
+		s.stopSession()
+		return fmt.Errorf("failed to close the trace; %w", err)
+	}
+
 	if err := s.stopSession(); err != nil {
 		return fmt.Errorf("failed to stop session; %w", err)
-	}
-	if err := s.closeSession(); err != nil {
-		return fmt.Errorf("failed to close session; %w", err)
 	}
 	return nil
 }
@@ -539,6 +542,7 @@ func (s *Session) processEvents(callbackContextKey uintptr) error {
 		return fmt.Errorf("OpenTraceW failed; %w", err)
 	}
 	s.hOpenTrace = traceHandle
+	defer closeTrace(traceHandle)
 
 	// BLOCKS UNTIL CLOSED!
 	err = processTrace(&traceHandle, 1, nil, nil)
@@ -563,17 +567,6 @@ func (s *Session) stopSession() error {
 		// https://docs.microsoft.com/en-us/windows/win32/api/evntrace/nf-evntrace-controltracew
 		if err == windows.ERROR_MORE_DATA {
 			err = nil
-		}
-		return err
-	}
-	return nil
-}
-
-func (s *Session) closeSession() error {
-	if s.hOpenTrace != invalidTraceHandle {
-		err := closeTrace(s.hOpenTrace)
-		if err == windows.ERROR_SUCCESS || err == windows.ERROR_CTX_CLOSE_PENDING {
-			return nil
 		}
 		return err
 	}

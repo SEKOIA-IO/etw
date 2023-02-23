@@ -78,10 +78,16 @@ func openTrace(logfile *eventTraceLogfile) (uint64, error) {
 	return traceHandle, nil
 }
 
-func closeTrace(sessionHandle uint64) error {
+func closeTrace(handle uint64) error {
 	// ETW_APP_DECLSPEC_DEPRECATED ULONG WMIAPI CloseTrace(
 	//  [in] TRACEHANDLE TraceHandle
 	// );
-	_, _, err := procCloseTrace.Call(uintptr(sessionHandle))
-	return err
+	r1, _, _ := procCloseTrace.Call(
+		uintptr(handle),
+	)
+	err := windows.Errno(r1)
+	if err != windows.ERROR_SUCCESS && err != windows.ERROR_CTX_CLOSE_PENDING {
+		return err
+	}
+	return nil
 }
