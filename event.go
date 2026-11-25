@@ -311,11 +311,6 @@ func getEventInformation(pEvent *eventRecordC) (*traceEventInfoC, []byte, error)
 		&bufferSize,
 	)
 	if err == windows.ERROR_INSUFFICIENT_BUFFER {
-		// The buffer must hold the whole struct, trailing array element included,
-		// or converting it to *traceEventInfoC straddles its allocation.
-		if minSize := uint32(unsafe.Sizeof(traceEventInfoC{})); bufferSize < minSize {
-			bufferSize = minSize
-		}
 		buffer = make([]uint8, bufferSize)
 
 		// Fetch the buffer itself.
@@ -341,7 +336,6 @@ func getPropertyName(info *traceEventInfoC, i int) unsafe.Pointer {
 
 // getPropertyName returns a name of the @i-th event property.
 func (p *propertyParser) getPropertyName(i int) string {
-	// The name lies inside the event information buffer, so that buffer bounds it.
 	maxLength := (len(p.infoBuffer) - int(p.info.properties()[i].NameOffset)) / 2
 	return createUTF16String(getPropertyName(p.info, i), maxLength)
 }
