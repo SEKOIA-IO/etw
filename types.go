@@ -36,17 +36,12 @@ type eventHeaderExtendedDataItem struct {
 	DataPtr  unsafe.Pointer
 }
 
-// anysizeArray is a constant that indicates that the referenced array is a variable size array in the C API.
-// Since this is a very large value (to avoid running into slice boundaries), structs that contain an anysize array
-// should never be instantiated, and only be referred to via pointers.
-const anysizeArray = 1 << 25
-
 type eventRecordCommon struct {
 	EventHeader       eventHeaderC
 	BufferContext     etwBufferContext
 	ExtendedDataCount uint16
 	UserDataLength    uint16
-	ExtendedData      *[anysizeArray]eventHeaderExtendedDataItem
+	ExtendedData      *eventHeaderExtendedDataItem // Points to an array of ExtendedDataCount items.
 	UserData          unsafe.Pointer
 	UserContext       uintptr
 }
@@ -68,12 +63,12 @@ type EventDescriptor struct {
 
 type eventExtendedItemStackTrace32 struct {
 	MatchId uint64
-	Address [anysizeArray]uint32
+	Address [1]uint32 // Variable size array in C (ANYSIZE_ARRAY); read it with unsafe.Slice.
 }
 
 type eventExtendedItemStackTrace64 struct {
 	MatchId uint64
-	Address [anysizeArray]uint64
+	Address [1]uint64 // Variable size array in C (ANYSIZE_ARRAY); read it with unsafe.Slice.
 }
 
 type traceEventInfoC struct {
@@ -99,7 +94,13 @@ type traceEventInfoC struct {
 	PropertyCount          uint32
 	TopLevelPropertyCount  uint32
 	_                      uint32
-	EventPropertyInfoArray [anysizeArray]eventPropertyInfoC
+	EventPropertyInfoArray [1]eventPropertyInfoC // Variable size array in C (ANYSIZE_ARRAY); see properties.
+}
+
+// properties returns the PropertyCount elements of the trailing array. The slice
+// aliases the buffer the struct was read from, which must hold PropertyCount elements.
+func (i *traceEventInfoC) properties() []eventPropertyInfoC {
+	return unsafe.Slice(&i.EventPropertyInfoArray[0], i.PropertyCount)
 }
 
 type propertyFlagsC uint32
@@ -360,7 +361,12 @@ const (
 type providerEnumerationInfo struct {
 	NumberOfProviders      uint32
 	_                      uint32
-	TraceProviderInfoArray [anysizeArray]traceProviderInfo
+	TraceProviderInfoArray [1]traceProviderInfo // Variable size array in C (ANYSIZE_ARRAY); see providers.
+}
+
+// providers returns the NumberOfProviders elements of the trailing array.
+func (i *providerEnumerationInfo) providers() []traceProviderInfo {
+	return unsafe.Slice(&i.TraceProviderInfoArray[0], i.NumberOfProviders)
 }
 
 type traceProviderInfo struct {
@@ -373,13 +379,23 @@ type traceProviderInfo struct {
 type providerEventInfo struct {
 	NumberOfEvents uint32
 	_              uint32
-	descriptors    [anysizeArray]EventDescriptor
+	descriptors    [1]EventDescriptor // Variable size array in C (ANYSIZE_ARRAY); see eventDescriptors.
+}
+
+// eventDescriptors returns the NumberOfEvents elements of the trailing array.
+func (i *providerEventInfo) eventDescriptors() []EventDescriptor {
+	return unsafe.Slice(&i.descriptors[0], i.NumberOfEvents)
 }
 
 type providerFieldInfoArray struct {
 	NumberOfElements uint32
 	FieldType        uint32
-	FieldInfoArray   [anysizeArray]providerFieldInfo
+	FieldInfoArray   [1]providerFieldInfo // Variable size array in C (ANYSIZE_ARRAY); see fields.
+}
+
+// fields returns the NumberOfElements elements of the trailing array.
+func (i *providerFieldInfoArray) fields() []providerFieldInfo {
+	return unsafe.Slice(&i.FieldInfoArray[0], i.NumberOfElements)
 }
 
 type providerFieldInfo struct {

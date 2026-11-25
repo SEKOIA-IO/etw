@@ -17,7 +17,10 @@ trap 'rm -rf "$TMPDIR"' EXIT
 echo "Testing go code on $(go version)"
 
 esc=$(printf '\033') # Red color
-go test \
+# -race enables -d=checkptr, which rejects unsafe conversions that straddle allocations.
+# The race detector needs cgo, which vars.sh disables for the build.
+CGO_ENABLED=1 go test \
+  -race \
   -v \
   --timeout 10m \
   --cover -coverprofile="${TMPDIR}/coverage.out" \
