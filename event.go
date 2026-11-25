@@ -311,6 +311,11 @@ func getEventInformation(pEvent *eventRecordC) (*traceEventInfoC, []byte, error)
 		&bufferSize,
 	)
 	if err == windows.ERROR_INSUFFICIENT_BUFFER {
+		// The buffer must hold the whole struct, trailing array element included,
+		// or converting it to *traceEventInfoC straddles its allocation.
+		if minSize := uint32(unsafe.Sizeof(traceEventInfoC{})); bufferSize < minSize {
+			bufferSize = minSize
+		}
 		buffer = make([]uint8, bufferSize)
 
 		// Fetch the buffer itself.
