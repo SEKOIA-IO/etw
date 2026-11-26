@@ -45,6 +45,11 @@ func (e ExistsError) Error() string {
 //
 // Session should be closed via `.Close` call to free obtained OS resources
 // even if `.Process` has never been called.
+//
+// Use a Session through the pointer NewSession or NewSessionNoCreate returns,
+// and do not embed it by value in another struct or array: on 32-bit platforms
+// its atomically accessed fields are 64-bit aligned only at the start of an
+// allocation.
 type Session struct {
 	// Accessed atomically from several goroutines; kept first so they are
 	// 64-bit aligned on 32-bit platforms (sync/atomic requirement).

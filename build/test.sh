@@ -17,7 +17,6 @@ trap 'rm -rf "$TMPDIR"' EXIT
 echo "Testing go code on $(go version)"
 
 esc=$(printf '\033') # Red color
-# checkptr rejects unsafe conversions that straddle allocations
 go test \
   -gcflags=all=-d=checkptr \
   -v \
