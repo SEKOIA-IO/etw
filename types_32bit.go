@@ -14,6 +14,12 @@ type eventTraceLogfile struct {
 	_ uint32 // Padding
 }
 
+// DataPtr is a ULONGLONG in C: the upper half of the pointer is padding.
+type eventHeaderExtendedDataItem struct {
+	eventHeaderExtendedDataItemCommon
+	_ uint32 // Padding
+}
+
 type eventRecordC struct {
 	eventRecordCommon
 	_ uint32 // Padding

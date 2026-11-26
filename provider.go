@@ -123,9 +123,8 @@ func (p Provider) listFields(fieldType EventFieldType) ([]ProviderField, error) 
 
 func parseFieldInfoArray(buffer []byte) []ProviderField {
 	infoArray := (*providerFieldInfoArray)(unsafe.Pointer(&buffer[0]))
-	// Recast field info array to escape golang boundary checks
 	var fields []ProviderField
-	for _, fieldInfo := range infoArray.FieldInfoArray[:infoArray.NumberOfElements] {
+	for _, fieldInfo := range infoArray.fields() {
 		fields = append(fields, ProviderField{
 			Name:        parseUnicodeStringAtOffset(buffer, int(fieldInfo.NameOffset)),
 			Description: parseUnicodeStringAtOffset(buffer, int(fieldInfo.DescriptionOffset)),
@@ -168,7 +167,7 @@ func ListProviders() ([]Provider, error) {
 	}
 	var parsedProviders []Provider
 	enumerationInfo := (*providerEnumerationInfo)(unsafe.Pointer(&buffer[0]))
-	for _, providerInfo := range enumerationInfo.TraceProviderInfoArray[:enumerationInfo.NumberOfProviders] {
+	for _, providerInfo := range enumerationInfo.providers() {
 		parsedProviders = append(parsedProviders, Provider{
 			Name: parseUnicodeStringAtOffset(buffer, int(providerInfo.ProviderNameOffset)),
 			Guid: providerInfo.ProviderGuid,
@@ -206,7 +205,7 @@ func (p Provider) ListEvents() ([]EventDescriptor, error) {
 	}
 	eventInfo := (*providerEventInfo)(unsafe.Pointer(&buffer[0]))
 	var descriptors = make([]EventDescriptor, eventInfo.NumberOfEvents)
-	copy(descriptors, eventInfo.descriptors[:eventInfo.NumberOfEvents])
+	copy(descriptors, eventInfo.eventDescriptors())
 	return descriptors, nil
 }
 

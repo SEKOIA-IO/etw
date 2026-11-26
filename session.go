@@ -45,17 +45,24 @@ func (e ExistsError) Error() string {
 //
 // Session should be closed via `.Close` call to free obtained OS resources
 // even if `.Process` has never been called.
+//
+// Use a Session through the pointer NewSession or NewSessionNoCreate returns,
+// and do not embed it by value in another struct or array: on 32-bit platforms
+// its atomically accessed fields are 64-bit aligned only at the start of an
+// allocation.
 type Session struct {
+	// Accessed atomically from several goroutines; kept first so they are
+	// 64-bit aligned on 32-bit platforms (sync/atomic requirement).
+	hOpenTrace      uint64
+	processedEvents uint64
+
 	guids    []windows.GUID
 	config   SessionOptions
 	callback EventCallback
 
 	etwSessionName []uint16
 	hSession       uint64
-	hOpenTrace     uint64
 	propertiesBuf  []byte
-
-	processedEvents uint64
 
 	providerIgnoreMapInfo map[windows.GUID]bool
 }
@@ -177,7 +184,7 @@ func (s *Session) Stat() (SessionStatistics, error) {
 	}
 	return SessionStatistics{
 		LostEvents:      uint64(sessionProperties.EventsLost),
-		ProcessedEvents: s.processedEvents,
+		ProcessedEvents: atomic.LoadUint64(&s.processedEvents),
 	}, nil
 }
 
@@ -186,12 +193,12 @@ func (s *Session) Close() error {
 	// "Be sure to disable all providers before stopping the session."
 	// https://docs.microsoft.com/en-us/windows/win32/etw/configuring-and-starting-an-event-tracing-session
 	if err := s.unsubscribeFromProviders(); err != nil {
-		closeTrace(s.hOpenTrace)
+		closeTrace(atomic.LoadUint64(&s.hOpenTrace))
 		s.stopSession()
 		return fmt.Errorf("failed to disable provider; %w", err)
 	}
 
-	if err := closeTrace(s.hOpenTrace); err != nil {
+	if err := closeTrace(atomic.LoadUint64(&s.hOpenTrace)); err != nil {
 		s.stopSession()
 		return fmt.Errorf("failed to close the trace; %w", err)
 	}
@@ -541,7 +548,7 @@ func (s *Session) processEvents(callbackContextKey uintptr) error {
 	if err != nil {
 		return fmt.Errorf("OpenTraceW failed; %w", err)
 	}
-	s.hOpenTrace = traceHandle
+	atomic.StoreUint64(&s.hOpenTrace, traceHandle)
 	defer closeTrace(traceHandle)
 
 	// BLOCKS UNTIL CLOSED!
@@ -657,7 +664,7 @@ func handleEvent(eventRecord *eventRecordC) uintptr {
 		ignoreMapInfo: ignoreMapInfo,
 	}
 	session.callback(evt)
-	session.processedEvents++
+	atomic.AddUint64(&session.processedEvents, 1)
 	evt.eventRecord = nil
 	return 0
 }

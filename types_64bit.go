@@ -12,6 +12,10 @@ type eventTraceLogfile struct {
 	eventTraceLogfileCommon
 }
 
+type eventHeaderExtendedDataItem struct {
+	eventHeaderExtendedDataItemCommon
+}
+
 type eventRecordC struct {
 	eventRecordCommon
 }

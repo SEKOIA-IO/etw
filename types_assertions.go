@@ -31,6 +31,11 @@ const (
 )
 
 const (
+	_ = unsafe.Sizeof(eventHeaderExtendedDataItem{}) - unsafe.Sizeof(C.EVENT_HEADER_EXTENDED_DATA_ITEM{})
+	_ = unsafe.Sizeof(C.EVENT_HEADER_EXTENDED_DATA_ITEM{}) - unsafe.Sizeof(eventHeaderExtendedDataItem{})
+)
+
+const (
 	_ = unsafe.Sizeof(eventRecordC{}) - unsafe.Sizeof(C.EVENT_RECORD{})
 	_ = unsafe.Sizeof(C.EVENT_RECORD{}) - unsafe.Sizeof(eventRecordC{})
 )

@@ -18,6 +18,7 @@ echo "Testing go code on $(go version)"
 
 esc=$(printf '\033') # Red color
 go test \
+  -gcflags=all=-d=checkptr \
   -v \
   --timeout 10m \
   --cover -coverprofile="${TMPDIR}/coverage.out" \

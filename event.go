@@ -119,7 +119,7 @@ func (e *Event) EventProperties() (map[string]interface{}, error) {
 }
 
 func zeroTerminatedPointerToString(ptr unsafe.Pointer, length int) string {
-	array := (*[anysizeArray]uint8)(ptr)[:length]
+	array := unsafe.Slice((*uint8)(ptr), length)
 	var zeroIndex int
 	for zeroIndex < len(array) && array[zeroIndex] != 0 {
 		zeroIndex++
@@ -174,10 +174,11 @@ func (e *Event) ExtendedInfo() ExtendedEventInfo {
 
 func (e *Event) parseExtendedInfo() ExtendedEventInfo {
 	var extendedData ExtendedEventInfo
-	for i := 0; i < int(e.eventRecord.ExtendedDataCount); i++ {
-		dataPtr := e.eventRecord.ExtendedData[i].DataPtr
+	items := unsafe.Slice(e.eventRecord.ExtendedData, e.eventRecord.ExtendedDataCount)
+	for i := range items {
+		dataPtr := items[i].DataPtr
 
-		switch e.eventRecord.ExtendedData[i].ExtType {
+		switch items[i].ExtType {
 		case eventHeaderExtTypeRelatedActivityid:
 			guid := *(*windows.GUID)(dataPtr)
 			extendedData.ActivityID = &guid
@@ -201,13 +202,13 @@ func (e *Event) parseExtendedInfo() ExtendedEventInfo {
 			stack32 := (*eventExtendedItemStackTrace32)(dataPtr)
 
 			// https://docs.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_extended_item_stack_trace32#remarks
-			dataSize := e.eventRecord.ExtendedData[i].DataSize
+			dataSize := items[i].DataSize
 			matchedIDSize := unsafe.Sizeof(uint64(0))
 			arraySize := (uintptr(dataSize) - matchedIDSize) / unsafe.Sizeof(uint32(0))
 
 			address := make([]uint64, arraySize)
-			for j := 0; j < int(arraySize); j++ {
-				address[j] = uint64(stack32.Address[j])
+			for j, a := range unsafe.Slice(&stack32.Address[0], arraySize) {
+				address[j] = uint64(a)
 			}
 
 			extendedData.StackTrace = &EventStackTrace{
@@ -219,12 +220,12 @@ func (e *Event) parseExtendedInfo() ExtendedEventInfo {
 			stack64 := (*eventExtendedItemStackTrace64)(dataPtr)
 
 			// https://docs.microsoft.com/en-us/windows/win32/api/evntcons/ns-evntcons-event_extended_item_stack_trace64#remarks
-			dataSize := e.eventRecord.ExtendedData[i].DataSize
+			dataSize := items[i].DataSize
 			matchedIDSize := unsafe.Sizeof(uint64(0))
 			arraySize := (uintptr(dataSize) - matchedIDSize) / unsafe.Sizeof(uint64(0))
 
 			address := make([]uint64, arraySize)
-			copy(address, stack64.Address[:arraySize])
+			copy(address, unsafe.Slice(&stack64.Address[0], arraySize))
 
 			extendedData.StackTrace = &EventStackTrace{
 				MatchedID: stack64.MatchId,
@@ -330,12 +331,13 @@ func getEventInformation(pEvent *eventRecordC) (*traceEventInfoC, []byte, error)
 }
 
 func getPropertyName(info *traceEventInfoC, i int) unsafe.Pointer {
-	return unsafe.Add(unsafe.Pointer(info), info.EventPropertyInfoArray[i].NameOffset)
+	return unsafe.Add(unsafe.Pointer(info), info.properties()[i].NameOffset)
 }
 
 // getPropertyName returns a name of the @i-th event property.
 func (p *propertyParser) getPropertyName(i int) string {
-	return createUTF16String(getPropertyName(p.info, i), anysizeArray)
+	maxLength := (len(p.infoBuffer) - int(p.info.properties()[i].NameOffset)) / 2
+	return createUTF16String(getPropertyName(p.info, i), maxLength)
 }
 
 func getLengthFromProperty(event *eventRecordC, dataDescriptor *propertyDataDescriptor) (uint32, error) {
@@ -373,7 +375,7 @@ func (p *propertyParser) getArraySize(propertyInfo eventPropertyInfoC) (uint32, 
 // N.B. getPropertyValue HIGHLY depends not only on @i but also on memory
 // offsets, so check twice calling with non-sequential indexes.
 func (p *propertyParser) getPropertyValue(i int) (interface{}, error) {
-	propertyInfo := p.info.EventPropertyInfoArray[i]
+	propertyInfo := p.info.properties()[i]
 
 	arraySize, err := p.getArraySize(propertyInfo)
 	if err != nil {
@@ -490,7 +492,7 @@ retryLoop:
 	}
 	p.data = p.data[userDataConsumed:]
 
-	return createUTF16String(unsafe.Pointer(&p.parseBuffer[0]), int(formattedDataSize)), nil
+	return createUTF16String(unsafe.Pointer(&p.parseBuffer[0]), int(formattedDataSize)/2), nil
 }
 
 // getMapInfo retrieve the mapping between the @i-th field and the structure it represents.
@@ -534,19 +536,13 @@ func (p *propertyParser) getMapInfo(propertyInfo eventPropertyInfoC) (unsafe.Poi
 	return unsafe.Pointer(&mapInfo[0]), nil
 }
 
-// Creates UTF16 string from raw parts.
-//
-// Actually in go we have no way to make a slice from raw parts, ref:
-// - https://github.com/golang/go/issues/13656
-// - https://github.com/golang/go/issues/19367
-// So the recommended way is "a fake cast" to the array with maximal len
-// with a following slicing.
-// Ref: https://github.com/golang/go/wiki/cgo#turning-c-arrays-into-go-slices
+// createUTF16String creates a string from the zero terminated UTF-16 string at ptr.
+// length is the maximal number of UTF-16 code units readable at ptr.
 func createUTF16String(ptr unsafe.Pointer, length int) string {
-	if length == 0 {
+	if length <= 0 {
 		return ""
 	}
-	chars := (*[anysizeArray]uint16)(ptr)[:length:length]
+	chars := unsafe.Slice((*uint16)(ptr), length)
 
 	// Detect actual length of UTF-16 zero terminated string
 	for i, v := range chars {
