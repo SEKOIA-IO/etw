@@ -28,7 +28,7 @@ type etwBufferContext struct {
 	LoggerId       uint16
 }
 
-type eventHeaderExtendedDataItem struct {
+type eventHeaderExtendedDataItemCommon struct {
 	_        uint16
 	ExtType  uint16
 	_        uint16
